@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "Quick Exports: Render Frames with Camera Names",
+    "name": "Render Frames with Camera Names",
     "blender": (2, 80, 0),
     "category": "Render",
 }
@@ -44,10 +44,17 @@ def bind_cameras_to_frames(scene):
     if not cameras:
         print("No cameras found in the scene")
         return
+
+    # Remove existing camera binds and markers if the option is enabled
+    if scene.remove_existing_binds:
+        scene.timeline_markers.clear()
+        for marker in scene.timeline_markers:
+            if marker.camera:
+                marker.camera = None
     
     cameras.sort(key=lambda cam: cam.name)
     start_frame = 0
-    frame_step = 10
+    frame_step = scene.frame_gap
     
     for i, camera in enumerate(cameras):
         frame = start_frame + i * frame_step
@@ -62,7 +69,8 @@ def bind_cameras_to_frames(scene):
     
     scene.frame_start = start_frame
     scene.frame_end = start_frame + (len(cameras) - 1) * frame_step
-    scene.frame_step = 1
+    if scene.use_frame_gap_as_step:
+        scene.frame_step = frame_step
     
     print("Cameras bound to frames and frame range adjusted")
 
@@ -78,24 +86,33 @@ class RenderSettingsPanel(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         
-        split = layout.split(factor=0.40)  # Split the layout into two parts (55% - 45%)
+        # Use a single column layout for the entire panel
+        col = layout.column()
         
-        # Left column (titles)
-        col = split.column()
-        col.alignment = 'RIGHT'
-        col.label(text="Naming")
+        # File Naming section
+        naming_split = col.split(factor=0.40)
+        naming_title_col = naming_split.column()
+        naming_title_col.alignment = 'RIGHT'
+        naming_title_col.label(text="File Naming")
+        naming_col = naming_split.column()
+        naming_col.prop(scene, "use_camera_name", text="Use Camera Name")
+        naming_col.prop(scene, "strip_numbers", text="Strip Numbers")
         
-        # Right column
-        col = split.column()
-        col.prop(scene, "use_camera_name", text="Use Camera Name")
-        col.prop(scene, "strip_numbers", text="Strip Numbers")
-
-        # Seperator
-        layout.separator(factor=0.1)
+        # Frame Gap section
+        frame_gap_split = col.split(factor=0.40)
+        frame_gap_title_col = frame_gap_split.column()
+        frame_gap_title_col.alignment = 'RIGHT'
+        frame_gap_title_col.label(text="Frame Gap")
+        frame_gap_col = frame_gap_split.column()
+        frame_gap_col.prop(scene, "frame_gap", text="")
+        frame_gap_col.prop(scene, "use_frame_gap_as_step", text="Use Frame Gap as Frame Step")
+        frame_gap_col.prop(scene, "remove_existing_binds", text="Remove Existing Binds and Markers")
+        
+        # Separator for visual separation
+        col.separator(factor=0.1)
         
         # Button
-        layout.operator("render.bind_cameras_to_frames", text="Bind Cameras to Frames")
-
+        col.operator("render.bind_cameras_to_frames", text="Bind Cameras to Frames")
 
 
 class BindCamerasOperator(bpy.types.Operator):
@@ -113,12 +130,28 @@ def register():
     bpy.types.Scene.use_camera_name = bpy.props.BoolProperty(
         name="Use Camera Name",
         description="Save rendered frames with the camera name",
-        default=False,
+        default=True,
     )
     bpy.types.Scene.strip_numbers = bpy.props.BoolProperty(
         name="Cleanup Filenames",
         description="Remove numbers from camera names in the format 'Camera.001'",
-        default=False,
+        default=True,
+    )
+    bpy.types.Scene.frame_gap = bpy.props.IntProperty(
+        name="Frame Gap",
+        description="Number of frames between each camera bind",
+        default=10,
+        min=1
+    )
+    bpy.types.Scene.use_frame_gap_as_step = bpy.props.BoolProperty(
+        name="Use Frame Gap as Frame Step",
+        description="Use the frame gap value as the frame step for the animation",
+        default=True,
+    )
+    bpy.types.Scene.remove_existing_binds = bpy.props.BoolProperty(
+        name="Remove Existing Binds and Markers",
+        description="Remove any existing camera binds and markers before binding new ones",
+        default=True,
     )
     bpy.app.handlers.render_complete.append(rename_rendered_frame)
     bpy.app.handlers.render_write.append(rename_rendered_frame)
@@ -129,6 +162,9 @@ def unregister():
     bpy.utils.unregister_class(BindCamerasOperator)
     del bpy.types.Scene.use_camera_name
     del bpy.types.Scene.strip_numbers
+    del bpy.types.Scene.frame_gap
+    del bpy.types.Scene.use_frame_gap_as_step
+    del bpy.types.Scene.remove_existing_binds
     bpy.app.handlers.render_complete.remove(rename_rendered_frame)
     bpy.app.handlers.render_write.remove(rename_rendered_frame)
     print("Handler unregistered")
